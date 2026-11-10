@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eyesweep</title>
+<style>
+:root{--bg:#f4f1ea;--surface:#fffdf8;--ink:#1d2330;--muted:#6b7280;--accent:#e4572e;--dot:#1d2330;--good:#2a9d6f;--bad:#c93c3c;--line:#ddd7c9;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151c;--surface:#1b2030;--ink:#eef0f5;--muted:#8d95a8;--accent:#ff7a4d;--dot:#f4f1ea;--good:#4cc790;--bad:#ff6b6b;--line:#2c3348}}
+:root[data-theme="dark"]{--bg:#12151c;--surface:#1b2030;--ink:#eef0f5;--muted:#8d95a8;--accent:#ff7a4d;--dot:#f4f1ea;--good:#4cc790;--bad:#ff6b6b;--line:#2c3348}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:18px 16px 28px}
+header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+h1{margin:0;font-size:28px;letter-spacing:-.5px}
+h1 span{color:var(--accent)}
+.stats{display:flex;gap:14px;font-size:14px;color:var(--muted)}
+.stats b{color:var(--ink);font-size:16px}
+#stage{position:relative;width:100%;height:min(58vh,420px);background:var(--surface);border:2px solid var(--line);border-radius:16px;overflow:hidden}
+.dot{position:absolute;border-radius:50%;background:var(--dot);transform:translate(-50%,-50%)}
+.dot.rev{background:var(--accent);opacity:.9}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;gap:10px}
+#overlay .big{font-size:64px;font-weight:700;color:var(--accent)}
+#overlay p{margin:0;color:var(--muted);max-width:30ch;line-height:1.4}
+#bar{height:5px;background:var(--line);border-radius:3px;margin-top:10px;overflow:hidden}
+#bar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left}
+#panel{margin-top:14px;display:flex;gap:8px}
+input{flex:1;min-width:0;font-size:22px;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-family:inherit}
+input:focus{outline:none;border-color:var(--accent)}
+button{font-family:inherit;font-size:17px;font-weight:700;padding:12px 20px;border:0;border-radius:12px;background:var(--accent);color:#fff;cursor:pointer}
+button:active{transform:scale(.97)}
+#msg{margin-top:12px;min-height:48px;text-align:center;font-size:17px;line-height:1.4}
+.good{color:var(--good)}.bad{color:var(--bad)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Eye<span>sweep</span></h1>
+<div class="stats"><div>Round <b id="rd">0</b>/10</div><div>Score <b id="sc">0</b></div><div>Best <b id="bs">0</b></div></div>
+</header>
+<div id="stage">
+<div id="overlay"><div class="big" style="font-size:44px">Eyesweep</div><p>Dots flash for two seconds. Count them, then type your guess.</p><button id="start">Start</button></div>
+</div>
+<div id="bar"><i id="fill"></i></div>
+<div id="panel" hidden>
+<input id="guess" type="number" inputmode="numeric" min="0" placeholder="How many dots?" autocomplete="off">
+<button id="go">Guess</button>
+</div>
+<div id="msg"></div>
+</main>
+<script>
+(function(){
+var TOTAL=10,SHOW=2000;
+var stage=document.getElementById('stage'),overlay=document.getElementById('overlay'),
+panel=document.getElementById('panel'),guess=document.getElementById('guess'),
+msg=document.getElementById('msg'),fill=document.getElementById('fill'),
+rdEl=document.getElementById('rd'),scEl=document.getElementById('sc'),bsEl=document.getElementById('bs');
+var round=0,score=0,count=0,dots=[],phase='idle',best=0;
+try{best=parseInt(localStorage.getItem('eyesweep-best'),10)||0}catch(e){}
+bsEl.textContent=best;
+
+function clearDots(){var d=stage.querySelectorAll('.dot');for(var i=0;i<d.length;i++)d[i].remove();}
+function rnd(a,b){return a+Math.floor(Math.random()*(b-a+1));}
+
+function place(n){
+  var W=stage.clientWidth,H=stage.clientHeight,r=n>70?4:n>40?5:n>20?6:8;
+  var gap=r*2+4,pts=[],tries=0;
+  while(pts.length<n&&tries<n*300){
+    tries++;
+    var x=rnd(r+6,W-r-6),y=rnd(r+6,H-r-6),ok=true;
+    for(var i=0;i<pts.length;i++){var dx=pts[i].x-x,dy=pts[i].y-y;if(dx*dx+dy*dy<gap*gap){ok=false;break;}}
+    if(ok)pts.push({x:x,y:y,r:r});
+  }
+  return pts;
+}
+
+function draw(pts,cls){
+  pts.forEach(function(p){
+    var d=document.createElement('div');d.className='dot'+(cls?' '+cls:'');
+    d.style.left=p.x+'px';d.style.top=p.y+'px';d.style.width=d.style.height=(p.r*2)+'px';
+    stage.appendChild(d);
+  });
+}
+
+function setBar(ms){
+  fill.style.transition='none';fill.style.transform='scaleX(1)';
+  void fill.offsetWidth;
+  if(ms){fill.style.transition='transform '+ms+'ms linear';fill.style.transform='scaleX(0)';}
+}
+
+function showOverlay(html){overlay.innerHTML=html;overlay.hidden=false;}
+
+function countdown(done){
+  var n=3;phase='wait';panel.hidden=true;msg.textContent='';clearDots();
+  (function tick(){
+    if(n===0){overlay.hidden=true;done();return;}
+    showOverlay('<div class="big">'+n+'</div><p>Round '+round+' of '+TOTAL+'</p>');
+    n--;setTimeout(tick,700);
+  })();
+}
+
+function nextRound(){
+  round++;rdEl.textContent=round;
+  count=round===1?rnd(5,10):rnd(15,100);
+  countdown(function(){
+    dots=place(count);count=dots.length;
+    draw(dots);phase='show';setBar(SHOW);
+    setTimeout(function(){
+      clearDots();phase='guess';setBar(0);fill.style.transform='scaleX(0)';
+      panel.hidden=false;guess.value='';guess.focus();
+      msg.textContent='How many dots did you see?';
+    },SHOW);
+  });
+}
+
+function submit(){
+  if(phase!=='guess')return;
+  var g=parseInt(guess.value,10);
+  if(isNaN(g)||g<0){guess.focus();return;}
+  phase='result';
+  var diff=Math.abs(g-count),pts=diff===0?100:Math.max(0,Math.round(80*(1-diff/(count*0.35))));
+  score+=pts;scEl.textContent=score;
+  draw(dots,'rev');
+  panel.hidden=true;
+  var cls=diff===0?'good':(pts>0?'':'bad');
+  var text=diff===0?'Perfect! +100':'You guessed '+g+' (off by '+diff+'). +'+pts;
+  msg.innerHTML='<div style="font-size:15px;color:var(--muted)">The answer was</div><div style="font-size:56px;font-weight:700;line-height:1.1;color:var(--accent)">'+count+'</div><span class="'+cls+'">'+text+'</span><br><button id="nx" style="margin-top:10px">'+(round>=TOTAL?'See results':'Next round')+'</button>';
+  var nx=document.getElementById('nx');
+  nx.onclick=function(){round>=TOTAL?finish():nextRound();};
+}
+
+function finish(){
+  phase='idle';clearDots();msg.textContent='';
+  var nb=score>best;
+  if(nb){best=score;bsEl.textContent=best;try{localStorage.setItem('eyesweep-best',String(best));}catch(e){}}
+  var rating=score>=900?'Eagle eyes!':score>=700?'Sharp.':score>=450?'Not bad.':'Keep sweeping.';
+  showOverlay('<div class="big" style="font-size:48px">'+score+'</div><p><b>'+rating+'</b><br>'+(nb?'New best score!':'Best: '+best)+'</p><button id="again">Play again</button>');
+  document.getElementById('again').onclick=reset;
+}
+
+function reset(){round=0;score=0;scEl.textContent=0;rdEl.textContent=0;nextRound();}
+
+document.getElementById('start').onclick=reset;
+document.getElementById('go').onclick=submit;
+guess.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();e.stopPropagation();if(!e.repeat)submit();}});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.repeat&&e.target===document.body&&phase==='result'){var nx=document.getElementById('nx');if(nx)nx.click();}
+});
+})();
+</script>
+</body>
+</html>
